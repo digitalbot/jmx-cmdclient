@@ -2,5 +2,10 @@
 /.settings
 /.classpath
 /.project
+/.idea
 /target
+/out
+/build
+
+*.iml
 
