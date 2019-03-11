@@ -1,16 +1,16 @@
 package jp.gr.java_conf.uzresk.jmx.client;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
@@ -35,12 +35,12 @@ public class Main {
 
 	private boolean init = true;
 
-	private List<String> header = new ArrayList<String>();
+	private List<String> header = new ArrayList<>();
 
 	/**
-	 * args[0] URL args[1] ObjectName args[2] AttributeName args[3] interval
+	 * Main
 	 * 
-	 * @param args
+	 * @param args args[0] URL args[1] ObjectName args[2] AttributeName args[3] interval
 	 */
 	public static void main(String[] args) {
 
@@ -67,9 +67,9 @@ public class Main {
 			if (args.length == 1) {
 				isShowDomains = true;
                         } else if (args.length > 2) {
-                            String[] attribs = args[2].split(",");
-                            for (String attrib: attribs) {
-                                metrics.add(new ObjectNameAttribute(args[1], attrib));
+                            String[] attrs = args[2].split(",");
+                            for (String attr: attrs) {
+                                metrics.add(new ObjectNameAttribute(args[1], attr));
                             }
                             if (args.length == 4) {
                                 intervalStr = args[3];
@@ -100,21 +100,16 @@ public class Main {
 		System.exit(0);
 	}
 
-	public void collect(String url, boolean isShowDomains, List<ObjectNameAttribute> metrics, int interval) {
-
-		JMXServiceURL jmxServiceUrl = null;
+	private void collect(String url, boolean isShowDomains, List<ObjectNameAttribute> metrics, int interval) {
+		JMXServiceURL jmxServiceUrl;
 		try {
 			jmxServiceUrl = new JMXServiceURL("service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi");
 		} catch (MalformedURLException e) {
 			throw new RuntimeException(e);
 		}
 
-		JMXConnector connector = null;
-		try {
-			connector = JMXConnectorFactory.connect(jmxServiceUrl);
-
+		try (JMXConnector connector = JMXConnectorFactory.connect(jmxServiceUrl)) {
 			mbsc = connector.getMBeanServerConnection();
-
 			if (isShowDomains) {
 				outputObjectNames();
 			} else {
@@ -138,81 +133,44 @@ public class Main {
 			}
 		} catch (IOException e) {
 			throw new RuntimeException("cannot connect jmx server [" + url + "]", e);
-		} finally {
-			if (connector != null) {
-				try {
-					connector.close();
-				} catch (IOException e) {
-					;
-				}
-			}
 		}
 	}
 
 	private static List<ObjectNameAttribute> load() {
 		String path = System.getProperty("path");
 		if (StringUtils.isBlank(path)) {
-			return new ArrayList<ObjectNameAttribute>();
+			return new ArrayList<>();
 		}
 
-		File file = new File(path);
-		FileReader fr;
+		List<ObjectNameAttribute> values = new ArrayList<>();
 		try {
-			fr = new FileReader(file);
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException("file not found. [" + path + "]", e);
-		}
-		BufferedReader br = null;
-		String str = null;
-
-		List<ObjectNameAttribute> values = new ArrayList<ObjectNameAttribute>();
-		try {
-			br = new BufferedReader(fr);
-			str = br.readLine();
-			str = str != null ? str.substring(1, str.length() - 1) : null;
-
-			while (str != null) {
-				String[] splitStr = str.split("\" \"");
-				if (splitStr.length != 2) {
-					throw new RuntimeException(
-							"Either it has not been specified in the ObjectName or attribute. [" + str + "]");
+			for (String line : Files.readAllLines(Paths.get(path))) {
+				if (StringUtils.isEmpty(line)) {
+					continue;
 				}
-				values.add(new ObjectNameAttribute(splitStr[0], splitStr[1]));
-				str = br.readLine();
-				str = str != null ? str.substring(1, str.length() - 1) : null;
+
+				String[] tokens = line.split("\t");
+				if (tokens.length != 2) {
+					throw new RuntimeException(
+							"Either it has not been specified in the ObjectName or attribute. [" + line + "]");
+				}
+				values.add(new ObjectNameAttribute(tokens[0], tokens[1]));
 			}
 		} catch (IOException e) {
-			throw new RuntimeException("file cannot be read. [" + path + "]");
-		} finally {
-			if (br != null) {
-				try {
-					br.close();
-				} catch (IOException e) {
-					;
-				}
-			}
+			throw new RuntimeException("file can not be read. [" + path + "]", e);
 		}
 		return values;
 	}
 
 	private void showHeader() {
-		int i = 0;
-		String headerLine = "";
-		for (String s : header) {
-			if (i == 0) {
-				headerLine = s;
-			} else {
-				headerLine = headerLine + "," + s;
-			}
-			i++;
-		}
+		String headerLine = String.join(",", header);
 		SIMPLE_LOG.info(headerLine);
 	}
 
 	private void outputObjectNames() {
-		Set<ObjectName> names = null;
+		Set<ObjectName> names;
 		try {
-			names = new TreeSet<ObjectName>(mbsc.queryNames(null, null));
+			names = new TreeSet<>(mbsc.queryNames(null, null));
 		} catch (IOException e) {
 			throw new RuntimeException("can't retrieve mbean.", e);
 		}
@@ -224,20 +182,9 @@ public class Main {
 	}
 
 	private String outputAttribute(List<ObjectNameAttribute> metrics) {
-
-		String collect = "";
-		int i = 0;
-
-		for (ObjectNameAttribute objectNameAttribute : metrics) {
-
-			if (i == 0) {
-				collect = prettyPrintAttribute(objectNameAttribute);
-			} else {
-				collect = collect + "," + prettyPrintAttribute(objectNameAttribute);
-			}
-			i++;
-		}
-		return collect;
+		return metrics.stream()
+				.map(this::prettyPrintAttribute)
+				.collect(Collectors.joining(","));
 	}
 
 	private String prettyPrintAttribute(ObjectNameAttribute objectNameAttribute) {
@@ -249,7 +196,7 @@ public class Main {
 			throw new RuntimeException("cannot find object name [" + objectNameAttribute.getObjectName() + "]", e);
 		}
 
-		Object obj = null;
+		Object obj;
 		String attribute = objectNameAttribute.getAttribute();
 		try {
 			obj = mbsc.getAttribute(objectName, attribute);
@@ -259,28 +206,20 @@ public class Main {
 
 		if (obj instanceof CompositeDataSupport) {
 			CompositeDataSupport data = (CompositeDataSupport) obj;
-			Set<String> keys = data.getCompositeType().keySet();
-
-			String value = "";
-			int i = 0;
+			Set<String> keys = new TreeSet<>(data.getCompositeType().keySet());
+			StringJoiner joiner = new StringJoiner(",");
 			for (String key : keys) {
 				if (init) {
 					header.add(attribute + "@" + key);
 				}
-				if (i == 0) {
-					value = data.get(key).toString();
-				} else {
-					value = value + "," + data.get(key).toString();
-				}
-				i++;
+				joiner.add(data.get(key).toString());
 			}
-			return value;
+			return joiner.toString();
 		} else if (obj.getClass().isArray()) {
 			if (init) {
 				header.add(attribute);
 			}
-			Object[] objs = Arrays.asList(obj).toArray();
-			return Arrays.deepToString(objs);
+			return Arrays.deepToString((Object[]) obj);
 		} else {
 			if (init) {
 				header.add(attribute);

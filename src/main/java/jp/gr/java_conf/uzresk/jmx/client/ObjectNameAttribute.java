@@ -1,21 +1,31 @@
 package jp.gr.java_conf.uzresk.jmx.client;
 
+import java.util.Objects;
+
 public class ObjectNameAttribute {
 
-	private String objectName;
+	private final String objectName;
 
-	private String attribute;
+	private final String attribute;
 
-	public ObjectNameAttribute(String objectName, String attribute) {
-		this.objectName = objectName;
-		this.attribute = attribute;
+	ObjectNameAttribute(String objectName, String attribute) {
+		this.objectName = simplify(Objects.requireNonNull(objectName));
+		this.attribute = simplify(Objects.requireNonNull(attribute));
 	}
 
-	public String getObjectName() {
+	private String simplify(String value) {
+		if (value.startsWith("\"") && value.endsWith("\"")) {
+			return value.substring(1, value.length() - 1);
+		} else {
+			return value;
+		}
+	}
+
+	String getObjectName() {
 		return this.objectName;
 	}
 
-	public String getAttribute() {
+	String getAttribute() {
 		return this.attribute;
 	}
 
@@ -23,5 +33,4 @@ public class ObjectNameAttribute {
 	public String toString() {
 		return "ObjectNameAttribute [objectName=" + objectName + ", attribute=" + attribute + "]";
 	}
-
 }
